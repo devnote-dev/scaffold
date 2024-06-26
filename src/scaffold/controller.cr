@@ -3,15 +3,15 @@ module Scaffold
     include HTTP::Handler
 
     macro inherited
-      private ROUTES = {} of {String, String} => {String, Int32}
+      private ROUTES = {} of {String, String | Regex} => {String, Int32}
 
       macro method_added(method)
         {% for name in %i[Get Post Patch Put Delete Head Options] %}
           \{% if anno = method.annotation(::SC::{{ name.id }}) %}
             \{% anno.raise "no route argument specified in annotation" if anno.args.empty? %}
             \{% route = anno.args[0] %}
-            \{% unless route.class_name == "StringLiteral" %}
-              \{% anno.raise "route argument must be a string literal" %}
+            \{% unless route.class_name == "StringLiteral" || route.class_name == "RegexLiteral" %}
+              \{% anno.raise "route argument must be a string literal or regex literal" %}
             \{% end %}
             \{% verb = anno.name.names.last.upcase.stringify %}
             \{% if ROUTES[{verb, route}] %}
