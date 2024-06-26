@@ -39,7 +39,7 @@ module Scaffold
       macro finished
         def call(context : ::HTTP::Server::Context) : ::Nil
           req, res = context.request, context.response
-          case {req.method, parse_route(req.path)}
+          case {req.method, req.path}
           \{% for route, method in ROUTES %}
           when \{{ route }}
             \{% if method[1] == 0 %}
@@ -59,10 +59,6 @@ module Scaffold
           transform res.not_nil!, ex
         end
       end
-    end
-
-    protected def parse_route(route : String) : String | Regex
-      route # TODO
     end
 
     def transform(res : Response, value : String) : Nil
