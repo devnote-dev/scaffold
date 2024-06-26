@@ -17,10 +17,21 @@ module Scaffold
             \{% if ROUTES[{verb, route}] %}
               \{% anno.raise "a route already exists with this method" %}
             \{% end %}
-            \{% if method.args.size > 2 %}
+            \{% count = method.args.size %}
+            \{% if count > 2 %}
               \{% method.raise "route methods can only accept a request and response as arguments" %}
             \{% end %}
-            \{% ROUTES[{verb, route}] = {method.name, method.args.size} %}
+            \{% if count == 1 && method.args[0].restriction %}
+              \{% type = method.args[0].restriction.resolve %}
+              \{% if type <= ::HTTP::Request %}
+                \{% count = -1 %}
+              \{% elsif type <= ::HTTP::Server::Response %}
+                \{% count = -2 %}
+              \{% else %}
+                \{% method.raise "route methods can only accept a request and response as arguments" %}
+              \{% end %}
+            \{% end %}
+            \{% ROUTES[{verb, route}] = {method.name, count} %}
           \{% end %}
         {% end %}
       end
@@ -33,8 +44,10 @@ module Scaffold
           when \{{ route }}
             \{% if method[1] == 0 %}
               transform res, \{{ method[0] }}
-            \{% elsif method[1] == 1 %}
+            \{% elsif method[1] == -1 || method[1] == 1 %}
               transform res, \{{ method[0] }}(req)
+            \{% elsif method[1] == -2 %}
+              transform res, \{{ method[0] }}(res)
             \{% else %}
               transform res, \{{ method[0] }}(req, res)
             \{% end %}
@@ -65,7 +78,7 @@ module Scaffold
     end
 
     def transform(res : Response, value : T) : NoReturn forall T
-      {% T.raise "no transformer method defined for type #{T}" %}
+      {% T.raise "no transform method defined for type #{T}" %}
     end
   end
 end
