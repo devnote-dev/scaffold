@@ -3,35 +3,42 @@ module Scaffold
     include HTTP::Handler
 
     macro inherited
-      macro finished
-        \{% routes = {} of String => Def %}
-        \{% for method in @type.methods %}
-          \{% anno = method.annotation(SC::Get) || method.annotation(SC::Post) %}
-          \{% if anno %}
-            \{% anno.raise "no route argument specified in annotation" if anno.args.empty? %}
-            \{% anno.raise "route argument must be a string literal" unless anno.args[0] == StringLiteral %}
-            \{% routes[anno[0]] = method %}
+      private ROUTES = {} of {String, String} => {String, Bool}
+
+      macro method_added(method)
+        \{% if anno = method.annotation(::SC::Get) || method.annotation(::SC::Post) %}
+          \{% anno.raise "no route argument specified in annotation" if anno.args.empty? %}
+          \{% route = anno.args[0] %}
+          \{% unless route.class_name == "StringLiteral" %}
+            \{% anno.raise "route argument must be a string literal" %}
           \{% end %}
+          \{% verb = anno.name.names.last.upcase.stringify %}
+          \{% if ROUTES[{verb, route}] %}
+            \{% anno.raise "a route already exists with this method" %}
+          \{% end %}
+          \{% ROUTES[{verb, route}] = {method.name, method.args.empty?} %}
         \{% end %}
-        \{% p @type.methods %}
-        def handle_incoming(req : ::HTTP::Request, res : ::HTTP::Server::Response) : ::Nil
-          case parse_route(req.path)
-          \{% for route, method in routes %}
+      end
+
+      macro finished
+        def call(context : ::HTTP::Server::Context) : ::Nil
+          req, res = context.request, context.response
+          case {req.method, parse_route(req.path)}
+          \{% for route, method in ROUTES %}
           when \{{ route }}
-            \{% if method.args.empty? %}
-              transform \{{ method.name }}, res
-            \{% elsif method.args.size == 1 %}
-              transform \{{ method.name }}(req), res
+            \{% if method[1] %}
+              transform res, \{{ method[0] }}
             \{% else %}
-              \{% method.raise "expected one argument for route method; got #{method.args.size}" %}
+              transform res, \{{ method[0] }}(req, res)
             \{% end %}
           \{% end %}
           else
             raise "route not found"
           end
         rescue ex
-          transform ex, res
+          transform res.not_nil!, ex
         end
+        \{% debug %}
       end
     end
 
@@ -39,23 +46,19 @@ module Scaffold
       route # TODO
     end
 
-    def call(context : HTTP::Server::Context)
-      handle_incoming context.request, context.response
-    end
-
-    def transform(value : String, res : Response) : Nil
+    def transform(res : Response, value : String) : Nil
       res << value
     end
 
-    def transform(value : Response, res : Response) : Nil
+    def transform(res : Response, value : Response) : Nil
     end
 
-    def transform(value : Exception, res : Response) : Nil
+    def transform(res : Response, value : Exception) : Nil
       res.status = :internal_server_error
-      res << "An unexpected exception occurred:" << value << '\n'
+      res << "An unexpected exception occurred: " << value << '\n'
     end
 
-    def transform(value : T, res : Response) : NoReturn forall T
+    def transform(res : Response, value : T) : NoReturn forall T
       {% T.raise "no transformer method defined for type #{T}" %}
     end
   end
