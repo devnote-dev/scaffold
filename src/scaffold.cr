@@ -1,4 +1,5 @@
 require "http/server"
+require "http/web_socket"
 
 module Scaffold
   VERSION = "0.1.0"
@@ -18,7 +19,7 @@ module Scaffold
     include HTTP::Handler
 
     macro inherited
-      private ROUTES = {} of {String, String | Regex} => {String, Int32}
+      private ROUTES = {} of {String, String | Regex} => {String, Int32, Bool}
 
       macro method_added(method)
         {% for name in %i[Get Post Patch Put Delete Head Options] %}
@@ -46,7 +47,16 @@ module Scaffold
                 \{% method.raise "route methods can only accept a request and response as arguments" %}
               \{% end %}
             \{% end %}
-            \{% ROUTES[{verb, route}] = {method.name, count} %}
+            \{% upgrade = false %}
+            \{% if anno = method.annotation(::SC::Upgrade) %}
+              \{% if anno.args.size == 0 || anno.args.size > 1 %}
+                \{% anno.raise "expected one argument for Upgrade annotation" %}
+              \{% elsif anno.args[0] != :websocket %}
+                \{% anno.raise "only 'websocket' is currently supported for Upgrade annotation" %}
+              \{% end %}
+              \{% upgrade = true %}
+            \{% end %}
+            \{% ROUTES[{verb, route}] = {method.name, count, upgrade} %}
           \{% end %}
         {% end %}
       end
@@ -57,14 +67,28 @@ module Scaffold
           case {req.method, req.path}
           \{% for route, method in ROUTES %}
           when \{{ route }}
-            \{% if method[1] == 0 %}
-              transform res, \{{ method[0] }}
-            \{% elsif method[1] == -1 || method[1] == 1 %}
-              transform res, \{{ method[0] }}(req)
-            \{% elsif method[1] == -2 %}
-              transform res, \{{ method[0] }}(res)
+            \{% if method[2] %}
+              spawn do
+                \{% if method[1] == 0 %}
+                  \{{ method[0] }}
+                \{% elsif method[1] == -1 || method[1] == 1 %}
+                  \{{ method[0] }}(req)
+                \{% elsif method[1] == -2 %}
+                  \{{ method[0] }}(res)
+                \{% else %}
+                  \{{ method[0] }}(req, res)
+                \{% end %}
+              end
             \{% else %}
-              transform res, \{{ method[0] }}(req, res)
+              \{% if method[1] == 0 %}
+                transform res, \{{ method[0] }}
+              \{% elsif method[1] == -1 || method[1] == 1 %}
+                transform res, \{{ method[0] }}(req)
+              \{% elsif method[1] == -2 %}
+                transform res, \{{ method[0] }}(res)
+              \{% else %}
+                transform res, \{{ method[0] }}(req, res)
+              \{% end %}
             \{% end %}
           \{% end %}
           else
