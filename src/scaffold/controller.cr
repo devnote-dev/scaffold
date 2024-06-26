@@ -6,18 +6,20 @@ module Scaffold
       private ROUTES = {} of {String, String} => {String, Bool}
 
       macro method_added(method)
-        \{% if anno = method.annotation(::SC::Get) || method.annotation(::SC::Post) %}
-          \{% anno.raise "no route argument specified in annotation" if anno.args.empty? %}
-          \{% route = anno.args[0] %}
-          \{% unless route.class_name == "StringLiteral" %}
-            \{% anno.raise "route argument must be a string literal" %}
+        {% for name in %i[Get, Post, Patch, Put, Delete, Head, Options] %}
+          \{% if anno = method.annotation(::SC::{{ name.id }}) %}
+            \{% anno.raise "no route argument specified in annotation" if anno.args.empty? %}
+            \{% route = anno.args[0] %}
+            \{% unless route.class_name == "StringLiteral" %}
+              \{% anno.raise "route argument must be a string literal" %}
+            \{% end %}
+            \{% verb = anno.name.names.last.upcase.stringify %}
+            \{% if ROUTES[{verb, route}] %}
+              \{% anno.raise "a route already exists with this method" %}
+            \{% end %}
+            \{% ROUTES[{verb, route}] = {method.name, method.args.empty?} %}
           \{% end %}
-          \{% verb = anno.name.names.last.upcase.stringify %}
-          \{% if ROUTES[{verb, route}] %}
-            \{% anno.raise "a route already exists with this method" %}
-          \{% end %}
-          \{% ROUTES[{verb, route}] = {method.name, method.args.empty?} %}
-        \{% end %}
+        {% end %}
       end
 
       macro finished
