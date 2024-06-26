@@ -70,7 +70,8 @@ module Scaffold
 
     def transform(res : Response, value : Exception) : Nil
       res.status = :internal_server_error
-      res << "An unexpected exception occurred: " << value << '\n'
+      res << "An unexpected exception occurred:\n"
+      value.inspect_with_backtrace res
     end
 
     def transform(res : Response, value : T) : NoReturn forall T
