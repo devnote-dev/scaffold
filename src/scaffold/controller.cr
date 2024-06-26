@@ -3,10 +3,10 @@ module Scaffold
     include HTTP::Handler
 
     macro inherited
-      private ROUTES = {} of {String, String} => {String, Bool}
+      private ROUTES = {} of {String, String} => {String, Int32}
 
       macro method_added(method)
-        {% for name in %i[Get, Post, Patch, Put, Delete, Head, Options] %}
+        {% for name in %i[Get Post Patch Put Delete Head Options] %}
           \{% if anno = method.annotation(::SC::{{ name.id }}) %}
             \{% anno.raise "no route argument specified in annotation" if anno.args.empty? %}
             \{% route = anno.args[0] %}
@@ -17,7 +17,10 @@ module Scaffold
             \{% if ROUTES[{verb, route}] %}
               \{% anno.raise "a route already exists with this method" %}
             \{% end %}
-            \{% ROUTES[{verb, route}] = {method.name, method.args.empty?} %}
+            \{% if method.args.size > 2 %}
+              \{% method.raise "route methods can only accept a request and response as arguments" %}
+            \{% end %}
+            \{% ROUTES[{verb, route}] = {method.name, method.args.size} %}
           \{% end %}
         {% end %}
       end
@@ -28,8 +31,10 @@ module Scaffold
           case {req.method, parse_route(req.path)}
           \{% for route, method in ROUTES %}
           when \{{ route }}
-            \{% if method[1] %}
+            \{% if method[1] == 0 %}
               transform res, \{{ method[0] }}
+            \{% elsif method[1] == 1 %}
+              transform res, \{{ method[0] }}(req)
             \{% else %}
               transform res, \{{ method[0] }}(req, res)
             \{% end %}
@@ -40,7 +45,6 @@ module Scaffold
         rescue ex
           transform res.not_nil!, ex
         end
-        \{% debug %}
       end
     end
 
@@ -52,7 +56,7 @@ module Scaffold
       res << value
     end
 
-    def transform(res : Response, value : Response) : Nil
+    def transform(res : Response, value : Response?) : Nil
     end
 
     def transform(res : Response, value : Exception) : Nil
