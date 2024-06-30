@@ -68,17 +68,15 @@ module Scaffold
           \{% for route, method in ROUTES %}
           when \{{ route }}
             \{% if method[2] %}
-              spawn do
-                \{% if method[1] == 0 %}
-                  \{{ method[0] }}
-                \{% elsif method[1] == -1 || method[1] == 1 %}
-                  \{{ method[0] }}(req)
-                \{% elsif method[1] == -2 %}
-                  \{{ method[0] }}(res)
-                \{% else %}
-                  \{{ method[0] }}(req, res)
-                \{% end %}
-              end
+              \{% if method[1] == 0 %}
+                \{{ method[0] }}
+              \{% elsif method[1] == -1 || method[1] == 1 %}
+                \{{ method[0] }}(req)
+              \{% elsif method[1] == -2 %}
+                \{{ method[0] }}(res)
+              \{% else %}
+                \{{ method[0] }}(req, res)
+              \{% end %}
             \{% else %}
               \{% if method[1] == 0 %}
                 transform res, \{{ method[0] }}
