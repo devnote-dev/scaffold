@@ -23,8 +23,8 @@ module Scaffold
     include HTTP::Handler
 
     macro inherited
-      private SCROUTES = {} of {String, String | Regex} => {String, Int32, Bool}
-      private SCHANDLE = {} of String => {String, Int32}
+      private SCROUTES = {} of String => Hash
+      private SCHANDLE = {} of Symbol => {String, Int32}
 
       macro method_added(method)
         \{% count = method.args.size %}
@@ -36,7 +36,7 @@ module Scaffold
               \{% anno.raise "route argument must be a string literal or regex literal" %}
             \{% end %}
             \{% verb = anno.name.names.last.upcase.stringify %}
-            \{% if SCROUTES[{verb, route}] %}
+            \{% if SCROUTES[route] && SCROUTES[route][verb] %}
               \{% anno.raise "a route already exists with this method" %}
             \{% end %}
             \{% upgrade = false %}
@@ -77,66 +77,89 @@ module Scaffold
                 \{% end %}
               \{% end %}
             \{% end %}
-            \{% SCROUTES[{verb, route}] = {method.name, count, upgrade} %}
+            \{% unless SCROUTES[route] %}
+              \{% SCROUTES[route] = {} of String => {String, Int32, Bool} %}
+            \{% end %}
+            \{% SCROUTES[route][verb] = {method.name, count, upgrade} %}
           \{% end %}
         {% end %}
-        \{% if anno = method.annotation(::SC::NotFound) %}
-          \{% anno.raise "annotation NotFound takes no arguments" unless anno.args.empty? %}
-          \{% if count > 2 %}
-            \{% method.raise "wrong number of arguments for handler method (given #{count}, expected 0..2)" %}
-          \{% end %}
-          \{% if count == 1 && method.args[0].restriction %}
-            \{% type = method.args[0].restriction.resolve %}
-            \{% if type <= ::HTTP::Request %}
-              \{% count = -1 %}
-            \{% elsif type <= ::HTTP::Server::Response %}
-              \{% count = -2 %}
-            \{% else %}
-              \{% method.raise "expected argument #1 to be HTTP::Request or HTTP::Server::Response, not #{type}" %}
+        {% for name in %i[NotFound NotAllowed] %}
+          \{% if anno = method.annotation(::SC::{{ name.id }}) %}
+            \{% anno.raise "annotation {{ name.id }} takes no arguments" unless anno.args.empty? %}
+            \{% if count > 2 %}
+              \{% method.raise "wrong number of arguments for handler method (given #{count}, expected 0..2)" %}
             \{% end %}
+            \{% if count == 1 && method.args[0].restriction %}
+              \{% type = method.args[0].restriction.resolve %}
+              \{% if type <= ::HTTP::Request %}
+                \{% count = -1 %}
+              \{% elsif type <= ::HTTP::Server::Response %}
+                \{% count = -2 %}
+              \{% else %}
+                \{% method.raise "expected argument #1 to be HTTP::Request or HTTP::Server::Response, not #{type}" %}
+              \{% end %}
+            \{% end %}
+            \{% SCHANDLE[{{ name }}] = {method.name, count} %}
           \{% end %}
-          \{% SCHANDLE[404] = {method.name, count} %}
-        \{% end %}
+        {% end %}
       end
 
       macro finished
         def call(context : ::HTTP::Server::Context) : ::Nil
-          req, res = context.request, context.response
-          case {req.method, req.path}
+          case context.request.path
           \{% for route, method in SCROUTES %}
           when \{{ route }}
-            \{% if method[2] %}
-              handler = ::HTTP::WebSocketHandler.new &->\{{ method[0] }}(::HTTP::WebSocket, ::HTTP::Server::Context)
-              handler.call context
-            \{% else %}
-              \{% if method[1] == 0 %}
-                transform res, \{{ method[0] }}
-              \{% elsif method[1] == -1 || method[1] == 1 %}
-                transform res, \{{ method[0] }}(req)
-              \{% elsif method[1] == -2 %}
-                transform res, \{{ method[0] }}(res)
+            case context.request.method
+            \{% for verb, info in method %}
+            when \{{ verb }}
+              \{% if info[2] %}
+                handler = ::HTTP::WebSocketHandler.new &->\{{ info[0] }}(::HTTP::WebSocket, ::HTTP::Server::Context)
+                handler.call context
               \{% else %}
-                transform res, \{{ method[0] }}(req, res)
+                \{% if info[1] == 0 %}
+                  transform context.response, \{{ info[0] }}
+                \{% elsif info[1] == -1 || info[1] == 1 %}
+                  transform context.response, \{{ info[0] }}(context.request)
+                \{% elsif info[1] == -2 %}
+                  transform context.response, \{{ info[0] }}(context.response)
+                \{% else %}
+                  transform context.response, \{{ info[0] }}(context.request, context.response)
+                \{% end %}
               \{% end %}
             \{% end %}
+            else
+              \{% if method = SCHANDLE[:NotAllowed] %}
+                \{% if method[1] == 0 %}
+                  transform context.response, \{{ method[0] }}
+                \{% elsif method[1] == -1 || method[1] == 1 %}
+                  transform context.response, \{{ method[0] }}(context.request)
+                \{% elsif method[1] == -2 %}
+                  transform context.response, \{{ method[0] }}(context.response)
+                \{% else %}
+                  transform context.response, \{{ method[0] }}(context.request, context.response)
+                \{% end %}
+              \{% else %}
+                raise "method not allowed" # TODO
+              \{% end %}
+            end
           \{% end %}
           else
-            \{% if method = SCHANDLE[404] %}
+            \{% if method = SCHANDLE[:NotFound] %}
               \{% if method[1] == 0 %}
-                transform res, \{{ method[0] }}
+                transform context.response, \{{ method[0] }}
               \{% elsif method[1] == -1 || method[1] == 1 %}
-                transform res, \{{ method[0] }}(req)
+                transform context.response, \{{ method[0] }}(context.request)
               \{% elsif method[1] == -2 %}
-                transform res, \{{ method[0] }}(res)
+                transform context.response, \{{ method[0] }}(context.response)
               \{% else %}
-                transform res, \{{ method[0] }}(req, res)
+                transform context.response, \{{ method[0] }}(context.request, context.response)
               \{% end %}
             \{% else %}
               raise "route not found"
             \{% end %}
           end
         rescue ex
-          transform res.not_nil!, ex
+          transform context.response, ex
         end
       end
     end
