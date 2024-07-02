@@ -11,6 +11,10 @@ module Scaffold
   annotation Delete; end
   annotation Head; end
   annotation Options; end
+  annotation All; end
+
+  annotation NotFound; end
+  annotation NotAllowed; end
   annotation Upgrade; end
 
   alias Response = HTTP::Server::Response
@@ -19,9 +23,11 @@ module Scaffold
     include HTTP::Handler
 
     macro inherited
-      private ROUTES = {} of {String, String | Regex} => {String, Int32, Bool}
+      private SCROUTES = {} of {String, String | Regex} => {String, Int32, Bool}
+      private SCHANDLE = {} of String => {String, Int32}
 
       macro method_added(method)
+        \{% count = method.args.size %}
         {% for name in %i[Get Post Patch Put Delete Head Options] %}
           \{% if anno = method.annotation(::SC::{{ name.id }}) %}
             \{% anno.raise "no route argument specified in annotation" if anno.args.empty? %}
@@ -30,10 +36,9 @@ module Scaffold
               \{% anno.raise "route argument must be a string literal or regex literal" %}
             \{% end %}
             \{% verb = anno.name.names.last.upcase.stringify %}
-            \{% if ROUTES[{verb, route}] %}
+            \{% if SCROUTES[{verb, route}] %}
               \{% anno.raise "a route already exists with this method" %}
             \{% end %}
-            \{% count = method.args.size %}
             \{% upgrade = false %}
             \{% if anno = method.annotation(::SC::Upgrade) %}
               \{% if anno.args.size == 0 || anno.args.size > 1 %}
@@ -72,16 +77,33 @@ module Scaffold
                 \{% end %}
               \{% end %}
             \{% end %}
-            \{% ROUTES[{verb, route}] = {method.name, count, upgrade} %}
+            \{% SCROUTES[{verb, route}] = {method.name, count, upgrade} %}
           \{% end %}
         {% end %}
+        \{% if anno = method.annotation(::SC::NotFound) %}
+          \{% anno.raise "annotation NotFound takes no arguments" unless anno.args.empty? %}
+          \{% if count > 2 %}
+            \{% method.raise "wrong number of arguments for handler method (given #{count}, expected 0..2)" %}
+          \{% end %}
+          \{% if count == 1 && method.args[0].restriction %}
+            \{% type = method.args[0].restriction.resolve %}
+            \{% if type <= ::HTTP::Request %}
+              \{% count = -1 %}
+            \{% elsif type <= ::HTTP::Server::Response %}
+              \{% count = -2 %}
+            \{% else %}
+              \{% method.raise "expected argument #1 to be HTTP::Request or HTTP::Server::Response, not #{type}" %}
+            \{% end %}
+          \{% end %}
+          \{% SCHANDLE[404] = {method.name, count} %}
+        \{% end %}
       end
 
       macro finished
         def call(context : ::HTTP::Server::Context) : ::Nil
           req, res = context.request, context.response
           case {req.method, req.path}
-          \{% for route, method in ROUTES %}
+          \{% for route, method in SCROUTES %}
           when \{{ route }}
             \{% if method[2] %}
               handler = ::HTTP::WebSocketHandler.new &->\{{ method[0] }}(::HTTP::WebSocket, ::HTTP::Server::Context)
@@ -99,7 +121,19 @@ module Scaffold
             \{% end %}
           \{% end %}
           else
-            raise "route not found"
+            \{% if method = SCHANDLE[404] %}
+              \{% if method[1] == 0 %}
+                transform res, \{{ method[0] }}
+              \{% elsif method[1] == -1 || method[1] == 1 %}
+                transform res, \{{ method[0] }}(req)
+              \{% elsif method[1] == -2 %}
+                transform res, \{{ method[0] }}(res)
+              \{% else %}
+                transform res, \{{ method[0] }}(req, res)
+              \{% end %}
+            \{% else %}
+              raise "route not found"
+            \{% end %}
           end
         rescue ex
           transform res.not_nil!, ex
