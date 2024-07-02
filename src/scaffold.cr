@@ -128,34 +128,37 @@ module Scaffold
               \{% end %}
             \{% end %}
             else
-              \{% if method = SCHANDLE[:NotAllowed] %}
-                \{% if method[1] == 0 %}
-                  transform context.response, \{{ method[0] }}
-                \{% elsif method[1] == -1 || method[1] == 1 %}
-                  transform context.response, \{{ method[0] }}(context.request)
-                \{% elsif method[1] == -2 %}
-                  transform context.response, \{{ method[0] }}(context.response)
+              \{% if info = SCHANDLE[:NotAllowed] %}
+                \{% if info[1] == 0 %}
+                  transform context.response, \{{ info[0] }}
+                \{% elsif info[1] == -1 || info[1] == 1 %}
+                  transform context.response, \{{ info[0] }}(context.request)
+                \{% elsif info[1] == -2 %}
+                  transform context.response, \{{ info[0] }}(context.response)
                 \{% else %}
-                  transform context.response, \{{ method[0] }}(context.request, context.response)
+                  transform context.response, \{{ info[0] }}(context.request, context.response)
                 \{% end %}
               \{% else %}
-                raise "method not allowed" # TODO
+                context.response.tap do |res|
+                  res.status = :method_not_allowed
+                  res.headers["Allow"] = \{{ method.keys.join "," }}
+                end
               \{% end %}
             end
           \{% end %}
           else
-            \{% if method = SCHANDLE[:NotFound] %}
-              \{% if method[1] == 0 %}
-                transform context.response, \{{ method[0] }}
-              \{% elsif method[1] == -1 || method[1] == 1 %}
-                transform context.response, \{{ method[0] }}(context.request)
-              \{% elsif method[1] == -2 %}
-                transform context.response, \{{ method[0] }}(context.response)
+            \{% if info = SCHANDLE[:NotFound] %}
+              \{% if info[1] == 0 %}
+                transform context.response, \{{ info[0] }}
+              \{% elsif info[1] == -1 || info[1] == 1 %}
+                transform context.response, \{{ info[0] }}(context.request)
+              \{% elsif info[1] == -2 %}
+                transform context.response, \{{ info[0] }}(context.response)
               \{% else %}
-                transform context.response, \{{ method[0] }}(context.request, context.response)
+                transform context.response, \{{ info[0] }}(context.request, context.response)
               \{% end %}
             \{% else %}
-              raise "route not found"
+              context.response.status = :not_found
             \{% end %}
           end
         rescue ex
