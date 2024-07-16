@@ -23,7 +23,7 @@ module Scaffold
     include HTTP::Handler
 
     macro inherited
-      private SCROUTES = {} of String => Hash
+      private SCROUTES = {} of String => Hash(String, {String, Int32, Bool})
       private SCHANDLE = {} of Symbol => {String, Int32}
 
       macro method_added(method)
