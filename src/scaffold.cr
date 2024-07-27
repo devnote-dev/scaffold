@@ -12,9 +12,6 @@ module Scaffold
   annotation Head; end
   annotation Options; end
   annotation All; end
-
-  annotation NotFound; end
-  annotation NotAllowed; end
   annotation Upgrade; end
 
   alias Response = HTTP::Server::Response
@@ -24,7 +21,7 @@ module Scaffold
 
     macro inherited
       private SCROUTES = {} of String => Hash(String, {String, Int32, Bool})
-      private SCHANDLE = {} of Symbol => {String, Int32}
+      private SCHANDLE = {} of Symbol => Int32
 
       macro method_added(method)
         \{% count = method.args.size %}
@@ -83,9 +80,8 @@ module Scaffold
             \{% SCROUTES[route][verb] = {method.name, count, upgrade} %}
           \{% end %}
         {% end %}
-        {% for name in %i[NotFound NotAllowed] %}
-          \{% if anno = method.annotation(::SC::{{ name.id }}) %}
-            \{% anno.raise "annotation {{ name.id }} takes no arguments" unless anno.args.empty? %}
+        {% for name in %i[on_not_found on_method_not_allowed] %}
+          \{% if method.name == {{ name.stringify }} && method.annotations.empty? %}
             \{% if count > 2 %}
               \{% method.raise "wrong number of arguments for handler method (given #{count}, expected 0..2)" %}
             \{% end %}
@@ -99,7 +95,7 @@ module Scaffold
                 \{% method.raise "expected argument #1 to be HTTP::Request or HTTP::Server::Response, not #{type}" %}
               \{% end %}
             \{% end %}
-            \{% SCHANDLE[{{ name }}] = {method.name, count} %}
+            \{% SCHANDLE[{{ name }}] = count %}
           \{% end %}
         {% end %}
       end
@@ -128,15 +124,15 @@ module Scaffold
               \{% end %}
             \{% end %}
             else
-              \{% if info = SCHANDLE[:NotAllowed] %}
-                \{% if info[1] == 0 %}
-                  transform context.response, \{{ info[0] }}
-                \{% elsif info[1] == -1 || info[1] == 1 %}
-                  transform context.response, \{{ info[0] }}(context.request)
-                \{% elsif info[1] == -2 %}
-                  transform context.response, \{{ info[0] }}(context.response)
+              \{% if count = SCHANDLE[:on_method_not_allowed] %}
+                \{% if count == 0 %}
+                  transform context.response, on_method_not_allowed
+                \{% elsif count == -1 || count == 1 %}
+                  transform context.response, on_method_not_allowed(context.request)
+                \{% elsif count == -2 %}
+                  transform context.response, on_method_not_allowed(context.response)
                 \{% else %}
-                  transform context.response, \{{ info[0] }}(context.request, context.response)
+                  transform context.response, on_method_not_allowed(context.request, context.response)
                 \{% end %}
               \{% else %}
                 context.response.tap do |res|
@@ -147,18 +143,18 @@ module Scaffold
             end
           \{% end %}
           else
-            \{% if info = SCHANDLE[:NotFound] %}
-              \{% if info[1] == 0 %}
-                transform context.response, \{{ info[0] }}
-              \{% elsif info[1] == -1 || info[1] == 1 %}
-                transform context.response, \{{ info[0] }}(context.request)
-              \{% elsif info[1] == -2 %}
-                transform context.response, \{{ info[0] }}(context.response)
+            \{% if count = SCHANDLE[:on_not_found] %}
+              \{% if count == 0 %}
+                transform context.response, on_not_found
+              \{% elsif count == -1 || count == 1 %}
+                transform context.response, on_not_found(context.request)
+              \{% elsif count == -2 %}
+                transform context.response, on_not_found(context.response)
               \{% else %}
-                transform context.response, \{{ info[0] }}(context.request, context.response)
+                transform context.response, on_not_found(context.request, context.response)
               \{% end %}
             \{% else %}
-              context.response.status = :not_found
+              call_next context
             \{% end %}
           end
         rescue ex
