@@ -33,7 +33,7 @@ module Scaffold
 
       macro method_added(method)
         \{% count = method.args.size %}
-        {% for name in %i[Get Post Patch Put Delete Head Options] %}
+        {% for name in %i[Get Post Patch Put Delete Head Options All] %}
           \{% if anno = method.annotation(::SC::{{ name.id }}) %}
             \{% anno.raise "no route argument specified in annotation" if anno.args.empty? %}
             \{% route = anno.args[0] %}
@@ -131,9 +131,7 @@ module Scaffold
           case context.request.path
           \{% for route, method in SCROUTES %}
           when \{{ route }}
-            case context.request.method
-            \{% for verb, info in method %}
-            when \{{ verb }}
+            \{% if info = method["ALL"] %}
               \{% if info[2] %}
                 handler = ::HTTP::WebSocketHandler.new &->\{{ info[0] }}(::HTTP::WebSocket, ::HTTP::Server::Context)
                 handler.call context
@@ -148,25 +146,44 @@ module Scaffold
                   transform context.response, \{{ info[0] }}(context.request, context.response)
                 \{% end %}
               \{% end %}
-            \{% end %}
-            else
-              \{% if count = SCHANDLE[:on_method_not_allowed] %}
-                \{% if count == 0 %}
-                  transform context.response, on_method_not_allowed
-                \{% elsif count == -1 || count == 1 %}
-                  transform context.response, on_method_not_allowed(context.request)
-                \{% elsif count == -2 %}
-                  transform context.response, on_method_not_allowed(context.response)
+            \{% else %}
+              case context.request.method
+              \{% for verb, info in method %}
+              when \{{ verb }}
+                \{% if info[2] %}
+                  handler = ::HTTP::WebSocketHandler.new &->\{{ info[0] }}(::HTTP::WebSocket, ::HTTP::Server::Context)
+                  handler.call context
                 \{% else %}
-                  transform context.response, on_method_not_allowed(context.request, context.response)
+                  \{% if info[1] == 0 %}
+                    transform context.response, \{{ info[0] }}
+                  \{% elsif info[1] == -1 || info[1] == 1 %}
+                    transform context.response, \{{ info[0] }}(context.request)
+                  \{% elsif info[1] == -2 %}
+                    transform context.response, \{{ info[0] }}(context.response)
+                  \{% else %}
+                    transform context.response, \{{ info[0] }}(context.request, context.response)
+                  \{% end %}
                 \{% end %}
-              \{% else %}
-                context.response.tap do |res|
-                  res.status = :method_not_allowed
-                  res.headers["Allow"] = \{{ method.keys.join "," }}
-                end
               \{% end %}
-            end
+              else
+                \{% if count = SCHANDLE[:on_method_not_allowed] %}
+                  \{% if count == 0 %}
+                    transform context.response, on_method_not_allowed
+                  \{% elsif count == -1 || count == 1 %}
+                    transform context.response, on_method_not_allowed(context.request)
+                  \{% elsif count == -2 %}
+                    transform context.response, on_method_not_allowed(context.response)
+                  \{% else %}
+                    transform context.response, on_method_not_allowed(context.request, context.response)
+                  \{% end %}
+                \{% else %}
+                  context.response.tap do |res|
+                    res.status = :method_not_allowed
+                    res.headers["Allow"] = \{{ method.keys.join "," }}
+                  end
+                \{% end %}
+              end
+            \{% end %}
           \{% end %}
           else
             \{% if count = SCHANDLE[:on_not_found] %}
