@@ -106,10 +106,28 @@ module Scaffold
             \{% SCHANDLE[{{ name }}] = count %}
           \{% end %}
         {% end %}
+        {% for name, type in {on_incoming: ::HTTP::Request, on_outgoing: ::HTTP::Server::Response} %}
+          \{% if method.name == {{ name.stringify }} && method.annotations.empty? %}
+            \{% unless count == 1 %}
+              \{% method.raise "wrong number of arguments for handler method (given #{count}, expected 1)" %}
+            \{% end %}
+            \{% if method.args[0].restriction %}
+              \{% type = method.args[0].restriction.resolve %}
+              \{% unless type <= {{ type }} %}
+                \{% method.raise "expected argument #1 to be {{ type }}, not #{type}" %}
+              \{% end %}
+            \{% end %}
+            \{% SCHANDLE[:{{ name }}] = 0 %}
+          \{% end %}
+        {% end %}
       end
 
       macro finished
         def call(context : ::HTTP::Server::Context) : ::Nil
+          \{% if SCHANDLE[:on_incoming] %}
+            on_incoming context.request
+          \{% end %}
+
           case context.request.path
           \{% for route, method in SCROUTES %}
           when \{{ route }}
@@ -165,6 +183,10 @@ module Scaffold
               call_next context
             \{% end %}
           end
+
+          \{% if SCHANDLE[:on_outgoing] %}
+            on_outgoing context.response
+          \{% end %}
         rescue ex
           transform context.response, ex
         end
