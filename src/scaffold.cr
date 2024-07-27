@@ -16,6 +16,14 @@ module Scaffold
 
   alias Response = HTTP::Server::Response
 
+  private class Redirect < Exception
+    getter status : HTTP::Status
+    getter url : String | URI
+
+    def initialize(@status : HTTP::Status, @url : String | URI)
+    end
+  end
+
   abstract class Controller
     include HTTP::Handler
 
@@ -163,6 +171,10 @@ module Scaffold
       end
     end
 
+    def redirect(to url : String | URI, status : HTTP::Status = :found) : Nil
+      raise Redirect.new status, url
+    end
+
     def transform(res : Response, value : String) : Nil
       res << value
     end
@@ -172,6 +184,10 @@ module Scaffold
 
     def transform(res : Response, value : Nil) : Nil
       res.status = :no_content
+    end
+
+    def transform(res : Response, value : Redirect) : Nil
+      res.redirect value.url.to_s, value.status
     end
 
     def transform(res : Response, value : Exception) : Nil
