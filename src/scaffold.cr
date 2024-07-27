@@ -34,91 +34,109 @@ module Scaffold
       macro method_added(method)
         \{% count = method.args.size %}
         {% for name in %i[Get Post Patch Put Delete Head Options All] %}
-          \{% if anno = method.annotation(::SC::{{ name.id }}) %}
-            \{% anno.raise "no route argument specified in annotation" if anno.args.empty? %}
-            \{% route = anno.args[0] %}
-            \{% unless route.class_name == "StringLiteral" || route.class_name == "RegexLiteral" %}
-              \{% anno.raise "route argument must be a string literal or regex literal" %}
-            \{% end %}
-            \{% verb = anno.name.names.last.upcase.stringify %}
-            \{% if SCROUTES[route] && SCROUTES[route][verb] %}
-              \{% anno.raise "a route already exists with this method" %}
-            \{% end %}
-            \{% upgrade = false %}
-            \{% if anno = method.annotation(::SC::Upgrade) %}
-              \{% if anno.args.size == 0 || anno.args.size > 1 %}
-                \{% anno.raise "expected one argument for Upgrade annotation" %}
-              \{% elsif anno.args[0] != :websocket %}
-                \{% anno.raise "only 'websocket' is currently supported for Upgrade annotation" %}
-              \{% end %}
-              \{% unless count == 2 %}
-                \{% method.raise "websocket route methods can only accept a websocket and context as arguments" %}
-              \{% end %}
-              \{% if method.args[0].restriction %}
-                \{% type = method.args[0].restriction.resolve %}
-                \{% unless type <= ::HTTP::WebSocket %}
-                  \{% type.raise "expected argument #1 to be HTTP::WebSocket, not #{type}" %}
-                \{% end %}
-              \{% end %}
-              \{% if method.args[1].restriction %}
-                \{% type = method.args[1].restriction.resolve %}
-                \{% unless type <= ::HTTP::Server::Context %}
-                  \{% type.raise "expected argument #2 to be HTTP::Server::Context, not #{type}" %}
-                \{% end %}
-              \{% end %}
-              \{% upgrade = true %}
-            \{% else %}
-              \{% if count > 2 %}
-                \{% method.raise "wrong number of arguments for route method (given #{count}, expected 0..2)" %}
-              \{% end %}
-              \{% if count == 1 && method.args[0].restriction %}
-                \{% type = method.args[0].restriction.resolve %}
-                \{% if type <= ::HTTP::Request %}
-                  \{% count = -1 %}
-                \{% elsif type <= ::HTTP::Server::Response %}
-                  \{% count = -2 %}
-                \{% else %}
-                  \{% method.raise "expected argument #1 to be HTTP::Request or HTTP::Server::Response, not #{type}" %}
-                \{% end %}
-              \{% end %}
-            \{% end %}
-            \{% unless SCROUTES[route] %}
-              \{% SCROUTES[route] = {} of String => {String, Int32, Bool} %}
-            \{% end %}
-            \{% SCROUTES[route][verb] = {method.name, count, upgrade} %}
-          \{% end %}
+          \{%
+            if anno = method.annotation(::SC::{{ name.id }})
+              route = anno.args[0]
+
+              unless route.class_name == "StringLiteral" || route.class_name == "RegexLiteral"
+                anno.raise "route argument must be a string literal or regex literal"
+              end
+
+              verb = anno.name.names.last.upcase.stringify
+              if SCROUTES[route] && SCROUTES[route][verb]
+                anno.raise "a route already exists with this method"
+              end
+
+              upgrade = false
+              if anno = method.annotation(::SC::Upgrade)
+                if anno.args.size == 0 || anno.args.size > 1
+                  anno.raise "expected one argument for Upgrade annotation"
+                elsif anno.args[0] != :websocket
+                  anno.raise "only 'websocket' is currently supported for Upgrade annotation"
+                end
+
+                unless count == 2
+                  method.raise "websocket route methods can only accept a websocket and context as arguments"
+                end
+
+                if method.args[0].restriction
+                  type = method.args[0].restriction.resolve
+                  unless type <= ::HTTP::WebSocket
+                    type.raise "expected argument #1 to be HTTP::WebSocket, not #{type}"
+                  end
+                end
+
+                if method.args[1].restriction
+                  type = method.args[1].restriction.resolve
+                  unless type <= ::HTTP::Server::Context
+                    type.raise "expected argument #2 to be HTTP::Server::Context, not #{type}"
+                  end
+                end
+
+                upgrade = true
+              else
+                if count > 2
+                  type.raise "wrong number of arguments for route method (given #{count}, expected 0..2)"
+                end
+
+                if count == 1 && method.args[0].restriction
+                  type = method.args[0].restriction.resolve
+                  if type <= ::HTTP::Request
+                    count = -1
+                  elsif type <= ::HTTP::Server::Response
+                    count = -2
+                  else
+                    method.raise "expected argument #1 to be HTTP::Request or HTTP::Server::Response, not #{type}"
+                  end
+                end
+              end
+
+              unless SCROUTES[route]
+                SCROUTES[route] = {} of String => {String, Int32, Bool}
+              end
+              SCROUTES[route][verb] = {method.name, count, upgrade}
+            end
+          %}
         {% end %}
         {% for name in %i[on_not_found on_method_not_allowed] %}
-          \{% if method.name == {{ name.stringify }} && method.annotations.empty? %}
-            \{% if count > 2 %}
-              \{% method.raise "wrong number of arguments for handler method (given #{count}, expected 0..2)" %}
-            \{% end %}
-            \{% if count == 1 && method.args[0].restriction %}
-              \{% type = method.args[0].restriction.resolve %}
-              \{% if type <= ::HTTP::Request %}
-                \{% count = -1 %}
-              \{% elsif type <= ::HTTP::Server::Response %}
-                \{% count = -2 %}
-              \{% else %}
-                \{% method.raise "expected argument #1 to be HTTP::Request or HTTP::Server::Response, not #{type}" %}
-              \{% end %}
-            \{% end %}
-            \{% SCHANDLE[{{ name }}] = count %}
-          \{% end %}
+          \{%
+            if method.name == {{ name.stringify }} && method.annotations.empty?
+              if count > 2
+                method.raise "wrong number of arguments for handler method (given #{count}, expected 0..2)"
+              end
+
+              if count == 1 && method.args[0].restriction
+                type = method.args[0].restriction.resolve
+                if type <= ::HTTP::Request
+                  count = -1
+                elsif type <= ::HTTP::Server::Response
+                  count = -2
+                else
+                  method.raise "expected argument #1 to be HTTP::Request or HTTP::Server::Response, not #{type}"
+                end
+              end
+
+              SCHANDLE[{{ name }}] = count
+            end
+          %}
         {% end %}
         {% for name, type in {on_incoming: ::HTTP::Request, on_outgoing: ::HTTP::Server::Response} %}
-          \{% if method.name == {{ name.stringify }} && method.annotations.empty? %}
-            \{% unless count == 1 %}
-              \{% method.raise "wrong number of arguments for handler method (given #{count}, expected 1)" %}
-            \{% end %}
-            \{% if method.args[0].restriction %}
-              \{% type = method.args[0].restriction.resolve %}
-              \{% unless type <= {{ type }} %}
-                \{% method.raise "expected argument #1 to be {{ type }}, not #{type}" %}
-              \{% end %}
-            \{% end %}
-            \{% SCHANDLE[:{{ name }}] = 0 %}
-          \{% end %}
+          \{%
+            if method.name == {{ name.stringify }} && method.annotations.empty?
+              unless count == 1
+                method.raise "wrong number of arguments for handler method (given #{count}, expected 1)"
+              end
+
+              if method.args[0].restriction
+                type = method.args[0].restriction.resolve
+                unless type <= {{ type }}
+                  method.raise "expected argument #1 to be {{ type }}, not #{type}"
+                end
+              end
+
+              SCHANDLE[:{{ name }}] = 0
+            end
+          %}
         {% end %}
       end
 
