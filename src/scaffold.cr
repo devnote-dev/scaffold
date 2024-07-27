@@ -167,7 +167,11 @@ module Scaffold
       res << value
     end
 
-    def transform(res : Response, value : Response?) : Nil
+    def transform(res : Response, value : Response) : Nil
+    end
+
+    def transform(res : Response, value : Nil) : Nil
+      res.status = :no_content
     end
 
     def transform(res : Response, value : Exception) : Nil
